@@ -11,6 +11,17 @@ Ce projet a pour but de détermniner les coordonnées d'un point dans l'espace s
 ## Installation
 
 1. Cloner le projet
+2. Configurer l'environnement en ajouter la configuration suivante dans le fichier `.env` à la racine du projet :
+
+```bash
+ASTROMETRY_API_KEY=VOTRE_API_KEY_ASTROMETRY
+```
+
+Exemple de fichier `.env` :
+
+```bash
+ASTROMETRY_API_KEY="123456789"
+```
 
 ## Utilisation
 
