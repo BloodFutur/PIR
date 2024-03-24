@@ -16,3 +16,8 @@ input: image
 -> utilisation des coordonnées du centre de l'image pour déterminer les coordonnées terrestres (azimuth, altitude)
 -> conversion des coordonnées terrestres (azimuth, altitude) en coordonnées terrestres (lat, long, alt)
 -> output: coordonnées terrestres/GPS (lat, long, alt)
+
+# Resources
+
+Pour query chez astrometry.net, on peut utiliser astroquery:
+https://astroquery.readthedocs.io/en/latest/astrometry_net/astrometry_net.html
