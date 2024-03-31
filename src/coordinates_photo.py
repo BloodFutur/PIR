@@ -155,8 +155,43 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
         The GPS coordinates of the object in (latitude, longitude) format
     """
     observer_lat, observer_lon, observer_alt = observer_location
+    observing_location = EarthLocation(lat=object_lat*u.deg, lon=observer_lon*u.deg)
+
+
     observer_time = Time(observer_time)
+    # Compute Julian Date (JD)
+    jd = observer_time.jd
+
+    # Compute Greenwich Sidereal Time (GST) in degrees
+    gst = 100.46 + 0.985647 * jd
+    gst = gst % 360  # Ensure GST is within 0 to 360 degrees
+
+    # Convert GST to hours, minutes, and seconds
+    gst_hour = gst / 15
+    gst_min = (gst_hour % 1) * 60
+    gst_sec = (gst_min % 1) * 60
+
+    # Compute Local Sidereal Time (LST) in degrees
+    lst = gst + observing_location.lon.deg
+    lst = lst % 360  # Ensure LST is within 0 to 360 degrees
+
+    lst_hour = lst / 15
+    lst_min = (lst_hour % 1) * 60
+    lst_sec = (lst_min % 1) * 60
+
+    # Celestial coordinates (RA and Dec)
     object_ra, object_dec = object_coordinates
+    celestial_coord = SkyCoord(ra=object_ra, dec=object_dec)
+
+    # Convert to Altitude and Azimuth
+    alt_az = celestial_coord.transform_to(AltAz(obstime=observer_time, location=observing_location))
+
+    #assume altitude equals 10000
+    z = 10000
+
+    #Convert to Polar coordinates 
+    r = cos(alt_az.alt.deg) * z
+    
 
     object_lat = observer_lat
     object_lon = observer_lon
