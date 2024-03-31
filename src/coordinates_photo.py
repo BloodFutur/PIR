@@ -135,32 +135,70 @@ def get_calibrated_camera_parameters(path: str='output/wcs_header.txt'):
 
 
 
+def local_sidereal_time(observer_lon, observer_time):
+    #la date
+    dt = datetime.strptime(observer_time, "%Y-%m-%d %H:%M:%S")
+    #la date julienne 
+    jd = 2451545.0 + (dt - datetime(2000, 1, 1)).total_seconds() / 86400.0
+    #temps en siècles juliens 
+    t = (jd - 2451545.0) / 36525.0
+    #temps Moyen de Greenwich Sidéral
+    gmst = 280.46061837 + 360.98564736629 * (jd - 2451545) + 0.000387933 * t**2 - t**3 / 38710000
+    #Ajustement au Temps Sidéral Local
+    lst = (gmst + observer_lon) % 360 # Le modulo 360 assure que le résultat reste dans l'intervalle de 0° à 360°.
+    return lst
+
+def equatorial_to_azimuthal(ra, dec, lst, observer_lat):
+    ra_rad = math.radians(ra)
+    dec_rad = math.radians(dec)
+    lst_rad = math.radians(lst)
+    observer_lat_rad = math.radians(observer_lat)
+
+    sin_altitude = math.sin(dec_rad) * math.sin(observer_lat_rad) + \
+                   math.cos(dec_rad) * math.cos(observer_lat_rad) * math.cos(hour_angle)
+    altitude = math.asin(sin_altitude)
+    
+    cos_azimuth = (math.sin(dec_rad) - math.sin(altitude) * math.sin(observer_lat_rad)) / \
+                  (math.cos(altitude) * math.cos(observer_lat_rad))
+    azimuth = math.acos(cos_azimuth)
+   
+    return math.degrees(azimuth), math.degrees(altitude)
+
+def polar_to_cartesian(altitude, azimuth):
+   
+    radius = math.cos(altitude)*10000
+    azimuth_rad = math.radians(azimuth)
+
+    # Conversion to Cartesian coordinates
+    x = radius * math.cos(azimuth_rad)
+    y = radius * math.sin(azimuth_rad)
+    
+    return x, y
+
 def convert_coordinates(observer_location, observer_time, object_coordinates):
-    """
-    This function converts the celestial coordinates of an object to Earth-based coordinates and then to GPS coordinates
-    We assume that the object flying at 32000 feet altitude
-
-    Parameters
-    ----------
-    observer_location : tuple
-        The observer location on Earth in (latitude, longitude, altitude) format
-    observer_time : str
-        The time of observation in the format "YYYY-MM-DD HH:MM:SS"
-    object_coordinates : tuple
-        The celestial coordinates of the object in (RA, Dec) format
-
-    Returns
-    -------
-    object_location : tuple
-        The GPS coordinates of the object in (latitude, longitude) format
-    """
     observer_lat, observer_lon, observer_alt = observer_location
-    observer_time = Time(observer_time)
+    
+    observer_time_dt = datetime.strptime(observer_time, "%Y-%m-%d %H:%M:%S")
+    
     object_ra, object_dec = object_coordinates
 
-    object_lat = observer_lat
-    object_lon = observer_lon
+    lst = local_sidereal_time(observer_lon, observer_time_dt)
+    
+    azimuth, altitude = equatorial_to_azimuthal(object_ra, object_dec, lst, observer_lat)
+
+
+    x, y = polar_to_cartesian(radius, azimuth)
+
+    # Convert Cartesian coordinates to GPS coordinates 
+    λ = math.atan2(y, x)
+    φ = math.atan2(z, math.sqrt(x**2 + y**2))
+
+    object_lon = math.degrees(λ)
+    object_lat = math.degrees(φ)
+
     return object_lat, object_lon
+
+
 
 def main():
 
