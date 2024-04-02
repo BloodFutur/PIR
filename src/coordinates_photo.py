@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 from dotenv import dotenv_values
 
+import math
+
 
 def calibrate_camera(photo: str):
     """
@@ -111,7 +113,7 @@ def get_calibrated_camera_parameters(path: str='output/wcs_header.txt'):
             # Read the WCS solution from the file
             wcs_header_raw = f.read()
             
-            # Parse the WCS solution
+            # Parse the WCSD. Les mécanismes à l’origine d’un accident du travail
             wcs_header = astropy.io.fits.Header.fromstring(wcs_header_raw)
 
             # Get the reference pixel
@@ -155,7 +157,7 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
         The GPS coordinates of the object in (latitude, longitude) format
     """
     observer_lat, observer_lon, observer_alt = observer_location
-    observing_location = EarthLocation(lat=object_lat*u.deg, lon=observer_lon*u.deg)
+    observing_location = EarthLocation(lat=observer_lat*u.deg, lon=observer_lon*u.deg)
 
 
     observer_time = Time(observer_time)
@@ -183,28 +185,77 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
     object_ra, object_dec = object_coordinates
     celestial_coord = SkyCoord(ra=object_ra, dec=object_dec)
 
-    # Convert to Altitude and Azimuth
+    # Convert to Zenith and Azimuth
     alt_az = celestial_coord.transform_to(AltAz(obstime=observer_time, location=observing_location))
 
-    #assume altitude equals 10000
+    #call method1 with zenith (zenith = alt_az.alt) and azimut in degrees
+    object_lat, object_lon = method1(alt_az.alt.deg,alt_az.az.deg)
+
+    return object_lat, object_lon
+
+
+def method1(zenith, azimuth):
+    """
+    Submethod to convert zenith (degrees), azimuth (degrees) of an object to longitude, latitude
+    Approach : zenith azimuth -> polar coordinates (r,theta) -> cartesian coordinates -> longitude, latitude 
+
+    Returns
+    -------
+    (longitude, latitude) : tuple
+    """
+    #assume altitude (cartesian coordinates) equals 10000
     z = 10000
 
     #Convert to Polar coordinates 
-    r = cos(alt_az.alt.deg) * z
-    
+    r = math.cos(zenith) * z
 
-    object_lat = observer_lat
-    object_lon = observer_lon
-    return object_lat, object_lon
+    #coord cartesiennes
+    x = r * math.sin(azimuth)
+    y = r * math.cos(azimuth)
+    
+    lon = math.atan(y/x)
+    lat = math.atan(z/(math.sqrt(x*x+y*y)))
+    return lon, lat
+
+def method2(zenith, azimuth):
+    """
+    Submethod to convert zenith (degrees), azimuth (degrees) of an object to longitude, latitude
+    Approach : 
+    https://fr.wikipedia.org/wiki/Coordonn%C3%A9es_sph%C3%A9riques#/media/Fichier:Spherical_Coordinates_(Colatitude,_Longitude)_(b).svg
+
+    From the spherical coordinates in the image, determine zenith azimuth 
+    and convert them to longitude latitude
+    
+    x = p * sin(zenith) * cos(azimuth)
+    y = p * sin(zenith) * sin(azimuth)
+    z = p * cos(zenith) = 10000 (approximation)
+
+    Returns
+    -------
+    (longitude, latitude) : tuple
+    """
+    #assume altitude (cartesian coordinates) equals 10000
+    z = 10000
+
+    zenith = 90 -zenith
+
+    #Cartesian coordinates
+    p = z / math.cos(zenith)
+    x = p * math.sin(zenith) * math.cos(azimuth)
+    y = p * math.sin(zenith) * math.sin(azimuth)
+
+    lon = math.atan(y/x)
+    lat = math.atan(z/(math.sqrt(x*x+y*y)))
+    return lon, lat
 
 def main():
-
-    # observer_location = (35.6895, 51.3896, 0)
-    # observer_time = "2021-06-21 00:00:00"
-    # object_coordinates = (0, 0)
-    # object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
-    # print(f"The GPS coordinates of the object are: {object_location}")
-
+    #43.59332974210737, 1.4568521462595372 
+    observer_location = (43.59332974210737, 1.4568521462595372, 0)
+    observer_time = "2024-03-12 21:46:36"
+    object_coordinates = ("4h56m33s", "3d18m15.545s")
+    object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
+    print(f"The GPS coordinates of the object are: {object_location}")
+    print(convert_coordinates(observer_location,observer_time,object_coordinates))
     # calibrate_camera('images/Image_test_12_mars_21h46mn36s.jpg')
     return 0
 
