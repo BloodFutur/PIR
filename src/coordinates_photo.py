@@ -188,10 +188,46 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
     # Convert to Zenith and Azimuth
     alt_az = celestial_coord.transform_to(AltAz(obstime=observer_time, location=observing_location))
 
+    print(f"Azimuth: {alt_az.az.deg} deg, Zenith: {alt_az.alt.deg} deg")
     #call method1 with zenith (zenith = alt_az.alt) and azimut in degrees
-    object_lat, object_lon = method1(alt_az.alt.deg,alt_az.az.deg)
+    r, theta = altaz_to_polar(alt_az.alt.rad, alt_az.az.rad) # en radians
+    print(f"r: {r} m, theta: {theta} rad /{math.degrees(theta)}deg ")
+
+    # en m
+    x,y = polar_to_cartesian(r,theta)
+    print(f"x: {x} m, y:{y} m")
+
+    # en rad
+    lon,lat = cartesian_to_lon_lat(x,y)
+    print(f"lon: {lon} rad/ {math.degrees(lon)}deg, lat: {lat} rad/{math.degrees(lat)}deg")
+
+    object_lat, object_lon = method2(alt_az.alt.deg,alt_az.az.deg)
 
     return object_lat, object_lon
+
+def altaz_to_polar(alt, az):
+    """
+    Submethod to convert altitude (radians), azimuth (radians) of an object to polar coordinates (r,theta)
+    Returns
+    -------
+    (r, theta) : tuple
+    """
+    alt_objet = 10000 # hypothesis: flying at 10km altitude
+    r = math.cos(alt) * alt_objet # en mètres
+    theta = az
+    return r, theta
+
+def polar_to_cartesian(r, theta):
+    #coord cartesiennes
+    x = r * math.cos(theta) # axis: 
+    y = r * math.sin(theta)
+    return x,y
+
+def cartesian_to_lon_lat(x,y):
+    z = 10000 # en m
+    lon = math.atan(y/x)
+    lat = math.atan(z/(math.sqrt(x*x+y*y)))
+    return lon, lat
 
 
 def method1(zenith, azimuth):
@@ -255,7 +291,7 @@ def main():
     object_coordinates = ("4h56m33s", "3d18m15.545s")
     object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
     print(f"The GPS coordinates of the object are: {object_location}")
-    print(convert_coordinates(observer_location,observer_time,object_coordinates))
+    # print(convert_coordinates(observer_location,observer_time,object_coordinates))
     # calibrate_camera('images/Image_test_12_mars_21h46mn36s.jpg')
     return 0
 
