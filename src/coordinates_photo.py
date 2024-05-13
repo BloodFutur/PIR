@@ -260,16 +260,36 @@ def get_celestial_coordinates(x,y,path):
 
 
 def main():
-    # Get observer location and time from file 
-    with open('src/params', 'r') as file:
-        lines = file.readlines()
 
-    # Get observer location in lon, lat, alt
-    observer_location = lines[0].strip()
-    observer_location = tuple(map(float, observer_location.split(',')))
-    
-    # Get observer time using format (AAAA--MM-DD hh:mm:ss)
-    observer_time = lines[1].strip()
+    # Define the expected format
+    expected_format = r"-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?"
+
+    # Prompting the user for observer location
+    observer_location_input = input("Enter observer location (latitude, longitude, altitude): ")
+
+    # Check if input matches the expected format
+    if re.match(expected_format, observer_location_input):
+        print("Input is in the correct format.")
+    else:
+        print("Input is not in the correct format. Please enter in latitude, longitude, altitude format.")
+        return -1
+
+    # Splitting the input string into latitude, longitude, and altitude
+    observer_location = tuple(map(float, observer_location_input.split(',')))
+
+
+    # Define the expected format
+    expected_format = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
+
+    # Prompting the user for observer time
+    observer_time = input("Enter observer time (YYYY-MM-DD HH:MM:SS): ")
+
+    # Check if input matches the expected format
+    if re.match(expected_format, observer_time):
+        print("Input is in the correct format.")
+    else:
+        print("Input is not in the correct format. Please enter in YYYY-MM-DD HH:MM:SS format.")
+        return -1
 
     # Printing out the entered values
     print("Observer Location:", observer_location)
