@@ -9,6 +9,8 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 from dotenv import dotenv_values
+import pytz
+from datetime import datetime
 
 import math
 import re
@@ -137,36 +139,6 @@ def get_calibrated_camera_parameters(path: str='output/wcs_header.txt'):
     return reference_pixel, reference_point, transformation_matrix
 
 
-
-def local_sidereal_time(observer_lon, observer_time):
-    #la date
-    dt = datetime.strptime(observer_time, "%Y-%m-%d %H:%M:%S")
-    #la date julienne 
-    jd = 2451545.0 + (dt - datetime(2000, 1, 1)).total_seconds() / 86400.0
-    #temps en siècles juliens 
-    t = (jd - 2451545.0) / 36525.0
-    #temps Moyen de Greenwich Sidéral
-    gmst = 280.46061837 + 360.98564736629 * (jd - 2451545) + 0.000387933 * t**2 - t**3 / 38710000
-    #Ajustement au Temps Sidéral Local
-    lst = (gmst + observer_lon) % 360 # Le modulo 360 assure que le résultat reste dans l'intervalle de 0° à 360°.
-    return lst
-
-def equatorial_to_azimuthal(ra, dec, lst, observer_lat):
-    ra_rad = math.radians(ra)
-    dec_rad = math.radians(dec)
-    lst_rad = math.radians(lst)
-    observer_lat_rad = math.radians(observer_lat)
-
-    sin_altitude = math.sin(dec_rad) * math.sin(observer_lat_rad) + \
-                   math.cos(dec_rad) * math.cos(observer_lat_rad) * math.cos(hour_angle)
-    altitude = math.asin(sin_altitude)
-    
-    cos_azimuth = (math.sin(dec_rad) - math.sin(altitude) * math.sin(observer_lat_rad)) / \
-                  (math.cos(altitude) * math.cos(observer_lat_rad))
-    azimuth = math.acos(cos_azimuth)
-   
-    return math.degrees(azimuth), math.degrees(altitude)
-
 def polar_to_cartesian(altitude, azimuth):
    
     radius = math.cos(altitude)*10000
@@ -184,33 +156,33 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
 
 
     observer_time = Time(observer_time)
-    # Compute Julian Date (JD)
-    jd = observer_time.jd
+    # local_time = datetime(2024, 4, 20, 0, 37, 38)  # Example: May 13, 2024, 12:00 PM local time
+    
+    local_time = datetime(  observer_time.datetime.year, 
+                            observer_time.datetime.month, 
+                            observer_time.datetime.day, 
+                            observer_time.datetime.hour, 
+                            observer_time.datetime.minute, 
+                            observer_time.datetime.second)  
 
-    # Compute Greenwich Sidereal Time (GST) in degrees
-    gst = 100.46 + 0.985647 * jd
-    gst = gst % 360  # Ensure GST is within 0 to 360 degrees
+    # Specify the local timezone
+    local_timezone = pytz.timezone('Europe/Paris')  # Example: 'America/New_York'
 
-    # Convert GST to hours, minutes, and seconds
-    gst_hour = gst / 15
-    gst_min = (gst_hour % 1) * 60
-    gst_sec = (gst_min % 1) * 60
+    # Localize the time to the specified timezone
+    localized_time = local_timezone.localize(local_time)
 
-    # Compute Local Sidereal Time (LST) in degrees
-    lst = gst + observing_location.lon.deg
-    lst = lst % 360  # Ensure LST is within 0 to 360 degrees
+    # Convert the localized time to GMT/UTC
+    gmt_time = localized_time.astimezone(pytz.utc)
 
-    lst_hour = lst / 15
-    lst_min = (lst_hour % 1) * 60
-    lst_sec = (lst_min % 1) * 60
+    print("gmt time: ",gmt_time)
 
     # Celestial coordinates (RA and Dec)
     object_ra, object_dec = object_coordinates
-    celestial_coord = SkyCoord(ra=object_ra, dec=object_dec, unit="deg")
 
     # Convert to Zenith and Azimuth
-    alt_az = celestial_coord.transform_to(AltAz(obstime=observer_time, location=observing_location))
-
+    celestial_coord = SkyCoord(ra=object_ra, dec=object_dec, unit="deg")
+    alt_az = celestial_coord.transform_to(AltAz(obstime=gmt_time, location=observing_location))
+    
     print(f"Azimuth: {alt_az.az.deg} deg\nZenith: {alt_az.alt.deg} deg")
     
     r, theta = altaz_to_polar(alt_az.alt.rad, alt_az.az.rad) 
@@ -221,7 +193,7 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
     print(f"x: {x} m, y:{y} m")
 
     # en rad
-    object_lat, object_lon = cartesian_to_lon_lat(x,y)
+    object_lat, object_lon = cartesian_to_lat_lon(x,y)
     object_lat, object_lon = math.degrees(object_lat) , math.degrees(object_lon)
     # print(f"lon: {lon} rad / {math.degrees(lon)}deg, lat: {lat} rad/{math.degrees(lat)}deg")
 
@@ -237,7 +209,8 @@ def altaz_to_polar(alt, az):
     (r, theta) : tuple
     """
     alt_objet = 10000 # hypothesis: flying at 10km altitude
-    r = math.cos(alt) * alt_objet # en mètres
+    # r = math.cos(alt) * alt_objet # en mètres
+    r = 10000 / math.cos(alt)
     theta = az
     return r, theta
 
@@ -249,23 +222,23 @@ def polar_to_cartesian(r, theta):
     -------
     (x, y, z) : tuple
     """
-    x = r * math.sin(theta) # axis: 
-    y = r * math.cos(theta)
+    x = r * math.cos(theta) # axis: 
+    y = r * math.sin(theta)
 
     return x,y
 
-def cartesian_to_lon_lat(x,y):
+def cartesian_to_lat_lon(x,y,z=10000):
     """
-    Submethod to convert cartesian coordinates (x,y,z) (we assume z = 10km) 
+    Submethod to convert cartesian coordinates (x,y,z) in meters (we assume z = 10km) 
     to longitude, latitude in radians
     Returns
     -------
     (lon, lat) : tuple
     """
-    z = 10000 # en m
-    lon = math.atan(y/x)
+    lon = math.atan2(y,x)
+    print("lon en rad:",lon)
     lat = math.atan(z/(math.sqrt(x*x+y*y)))
-    return lon, lat
+    return lat, lon
 
 def get_celestial_coordinates(x,y,path):
     """
@@ -287,49 +260,29 @@ def get_celestial_coordinates(x,y,path):
 
 
 def main():
+    # Get observer location and time from file 
+    with open('src/params', 'r') as file:
+        lines = file.readlines()
 
-    # Define the expected format
-    expected_format = r"-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?"
+    # Get observer location in lon, lat, alt
+    observer_location = lines[0].strip()
+    observer_location = tuple(map(float, observer_location.split(',')))
     
-    # Prompting the user for observer location
-    observer_location_input = input("Enter observer location (latitude, longitude, altitude): ")
-
-    # Check if input matches the expected format
-    if re.match(expected_format, observer_location_input):
-        print("Input is in the correct format.")
-    else:
-        print("Input is not in the correct format. Please enter in latitude, longitude, altitude format.")
-        return -1
-
-    # Splitting the input string into latitude, longitude, and altitude
-    observer_location = tuple(map(float, observer_location_input.split(',')))
-
-    
-    # Define the expected format
-    expected_format = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
-
-    # Prompting the user for observer time
-    observer_time = input("Enter observer time (YYYY-MM-DD HH:MM:SS): ")
-
-    # Check if input matches the expected format
-    if re.match(expected_format, observer_time):
-        print("Input is in the correct format.")
-    else:
-        print("Input is not in the correct format. Please enter in YYYY-MM-DD HH:MM:SS format.")
-        return -1
+    # Get observer time using format (AAAA--MM-DD hh:mm:ss)
+    observer_time = lines[1].strip()
 
     # Printing out the entered values
     print("Observer Location:", observer_location)
     print("Observer Time:", observer_time)
 
     # Get ref_pixel (x,y) in image, ref_celestial_coord (RA,Dec) of ref pixel and transformation matrix
-    ref_pixel,ref_celestial_coord,matrix = get_calibrated_camera_parameters("../output/wcs_header.txt")
+    ref_pixel,ref_celestial_coord,matrix = get_calibrated_camera_parameters("output/wcs_header.txt")
     
-    print(get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"../output/wcs_header.txt"))
-    
+    print("get celestial coord ref pixel:",get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"output/wcs_header.txt"))
+
     # Compute Celestial coordinates of a given point (x,y) in the photo
-    object_coordinates = get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"../output/wcs_header.txt")
-    
+    object_coordinates = get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"output/wcs_header.txt")
+
     # Convert celestial coordinates of the object to GPS coordinates (longitude, latitude)
     object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
     print(f"The GPS coordinates of the object are: \n{object_location}")
