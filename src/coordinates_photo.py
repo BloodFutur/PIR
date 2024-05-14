@@ -11,7 +11,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 import pytz
 from datetime import datetime
-
+import numpy as np
 import math
 import re
 
@@ -139,24 +139,13 @@ def get_calibrated_camera_parameters(path: str='output/wcs_header.txt'):
     return reference_pixel, reference_point, transformation_matrix
 
 
-def polar_to_cartesian(altitude, azimuth):
-   
-    radius = math.cos(altitude)*10000
-    azimuth_rad = math.radians(azimuth)
-
-    # Conversion to Cartesian coordinates
-    x = radius * math.cos(azimuth_rad)
-    y = radius * math.sin(azimuth_rad)
-    
-    return x, y
-
 def convert_coordinates(observer_location, observer_time, object_coordinates):
+    # Define observer location in the Astropy format
     observer_lat, observer_lon, observer_alt = observer_location
     observing_location = EarthLocation(lat=observer_lat*u.deg, lon=observer_lon*u.deg)
 
-
+    # Create time object
     observer_time = Time(observer_time)
-    # local_time = datetime(2024, 4, 20, 0, 37, 38)  # Example: May 13, 2024, 12:00 PM local time
     
     local_time = datetime(  observer_time.datetime.year, 
                             observer_time.datetime.month, 
@@ -181,68 +170,51 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
 
     # Convert to Zenith and Azimuth
     celestial_coord = SkyCoord(ra=object_ra, dec=object_dec, unit="deg")
+    print("observing location:",observer_location)
     alt_az = celestial_coord.transform_to(AltAz(obstime=gmt_time, location=observing_location))
-    
+
     print(f"Azimuth: {alt_az.az.deg} deg\nZenith: {alt_az.alt.deg} deg")
+
+    # Calculate latitude and longitude
+    latitude, longitude = calculate_lon_lat(observer_lat, observer_lon,
+                                                    alt_az.alt.deg, alt_az.az.deg)
+
+    return latitude, longitude
+
+def calculate_lon_lat(observer_lat, observer_lon, elevation, azimuth,aircraft_alt = 10):
+    """
+    assume aircrafts fly object_alt = 10km
+    """
+    # Earth's radius in kilometers
+    Earth_radius = 6371  
     
-    r, theta = altaz_to_polar(alt_az.alt.rad, alt_az.az.rad) 
-    print(f"r: {r} m\ntheta: {theta} rad /{math.degrees(theta)} deg \n")
+    # Convert angles from degrees to radians
+    observer_lat_rad = np.radians(observer_lat)
+    observer_lon_rad = np.radians(observer_lon)
+    elevation_rad = np.radians(elevation)
+    azimuth_rad = np.radians(azimuth)
 
-    # en m
-    x,y = polar_to_cartesian(r,theta)
-    print(f"x: {x} m, y:{y} m")
+    # Calculate intermediate angle
+    psi_alt = np.pi/2 - elevation_rad - np.arcsin(Earth_radius/(Earth_radius+aircraft_alt)*np.cos(elevation_rad))
+    
+    #calculate lat
+    lat = np.arcsin(np.sin(observer_lat_rad) * np.cos(psi_alt) + 
+                        np.cos(observer_lat_rad) * np.sin(psi_alt) * np.cos(azimuth_rad))
+    
+    # Calclute longitude based on latitude's val
+    if (observer_lat>70   and  np.tan(psi_alt)*np.cos(azimuth_rad) > np.tan(np.pi/2-observer_lat_rad)) or \
+       (observer_lat<-70  and  np.tan(psi_alt)*np.cos(azimuth_rad + np.pi) > np.tan(np.pi/2+observer_lat_rad)):
+      lon = observer_lon_rad +np.pi - np.arcsin(np.sin(psi_alt)*np.sin(azimuth_rad)/np.cos(lat))
+      
+    else:
+      lon = observer_lon_rad + np.arcsin(np.sin(psi_alt)*np.sin(azimuth_rad)/np.cos(lat))
+    
+    return np.degrees(lat), np.degrees(lon)
 
-    # en rad
-    object_lat, object_lon = cartesian_to_lat_lon(x,y)
-    object_lat, object_lon = math.degrees(object_lat) , math.degrees(object_lon)
-    # print(f"lon: {lon} rad / {math.degrees(lon)}deg, lat: {lat} rad/{math.degrees(lat)}deg")
-
-    # object_lat, object_lon = method1(alt_az.alt.rad,alt_az.az.rad)
-
-    return object_lat, object_lon
-
-def altaz_to_polar(alt, az):
-    """
-    Submethod to convert altitude (radians), azimuth (radians) of an object to polar coordinates (r,theta)
-    Returns
-    -------
-    (r, theta) : tuple
-    """
-    alt_objet = 10000 # hypothesis: flying at 10km altitude
-    # r = math.cos(alt) * alt_objet # en mètres
-    r = 10000 / math.cos(alt)
-    theta = az
-    return r, theta
-
-def polar_to_cartesian(r, theta):
-    """
-    Submethod to convert radius (radians), theta (radians) of an object 
-    to cartesian coordinates (x,y,z) in meters
-    Returns
-    -------
-    (x, y, z) : tuple
-    """
-    x = r * math.cos(theta) # axis: 
-    y = r * math.sin(theta)
-
-    return x,y
-
-def cartesian_to_lat_lon(x,y,z=10000):
-    """
-    Submethod to convert cartesian coordinates (x,y,z) in meters (we assume z = 10km) 
-    to longitude, latitude in radians
-    Returns
-    -------
-    (lon, lat) : tuple
-    """
-    lon = math.atan2(y,x)
-    print("lon en rad:",lon)
-    lat = math.atan(z/(math.sqrt(x*x+y*y)))
-    return lat, lon
 
 def get_celestial_coordinates(x,y,path):
     """
-    Submethod to compute celestial coordinates of a given pixel x,y in the image 
+    Submethod to compute celestial coordinates of a given pixel x,y in the image using data calibration (Astrometry)
     Returns 
     -------
     (Ra,Dec) : tuple
@@ -296,14 +268,13 @@ def main():
     print("Observer Time:", observer_time)
 
     # Get ref_pixel (x,y) in image, ref_celestial_coord (RA,Dec) of ref pixel and transformation matrix
-    ref_pixel,ref_celestial_coord,matrix = get_calibrated_camera_parameters("output/wcs_header.txt")
-    
-    print("get celestial coord ref pixel:",get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"output/wcs_header.txt"))
+    print("get celestial coord ref pixel:")
+
 
     # Compute Celestial coordinates of a given point (x,y) in the photo
-    object_coordinates = get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"output/wcs_header.txt")
+    object_coordinates = get_celestial_coordinates(0,0,"output/wcs_header.txt")
 
-    # Convert celestial coordinates of the object to GPS coordinates (longitude, latitude)
+    # Convert celestial coordinates of the object to GPS coordinates (latitude, longitude)
     object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
     print(f"The GPS coordinates of the object are: \n{object_location}")
 
