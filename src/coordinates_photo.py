@@ -9,9 +9,11 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 from dotenv import dotenv_values
-
+import pytz
+from datetime import datetime
 import math
 import re
+import pyproj
 
 
 def calibrate_camera(photo: str):
@@ -229,6 +231,146 @@ def convert_coordinates(observer_location, observer_time, object_coordinates):
 
     return object_lat, object_lon
 
+
+def convert_to_gps_coordinates(observer_location, observer_time, object_coordinates):
+    """
+    This function converts celestial coordinates to GPS coordinates.
+
+    First we convert the observer's location to cartesian coordinates.
+    Then we convert the altitude and azimuth of the object to cartesian coordinates.
+    Finally, we convert the cartesian coordinates of the object to longitude and latitude.
+
+    Parameters
+    ----------
+    observer_location : tuple
+        The observer location in (latitude, longitude, altitude) format
+    observer_time : str
+        The observer time in "YYYY-MM-DD HH:MM:SS" format
+    object_coordinates : tuple
+        The celestial coordinates of the object in (RA, Dec) format
+
+    Returns
+    -------
+    object_location : tuple
+        The GPS coordinates of the object in (longitude, latitude) format
+    """
+    # Unpack observer data
+    observer_lon, observer_lat, observer_alt = observer_location
+    observing_location = EarthLocation(lat=observer_lat*u.deg, lon=observer_lon*u.deg)
+
+    # Specify the observer time to be in the UTC timezone
+    observer_time = Time(observer_time)
+
+    local_time = datetime(  observer_time.datetime.year, 
+                            observer_time.datetime.month, 
+                            observer_time.datetime.day, 
+                            observer_time.datetime.hour, 
+                            observer_time.datetime.minute, 
+                            observer_time.datetime.second)  
+
+    # Specify the local timezone
+    local_timezone = pytz.timezone('Europe/Paris')  # Example: 'America/New_York'
+
+    # Localize the time to the specified timezone
+    localized_time = local_timezone.localize(local_time)
+
+    # Convert the localized time to GMT/UTC
+    gmt_time = localized_time.astimezone(pytz.utc)
+
+    print(f"Observer Time (GMT): {observer_time}")
+
+    # Unpack object data
+    object_ra, object_dec = object_coordinates
+    celestial_coord = SkyCoord(ra=object_ra, dec=object_dec, unit="deg", frame='icrs')
+
+    # Convert to Zenith and Azimuth observing_location
+    alt_az = celestial_coord.transform_to(AltAz(obstime=observer_time, location=observing_location))
+
+    # Get Altitude and Azimuth of the object
+    E = alt_az.alt.rad # in radians (A) (Altitude)
+    A = alt_az.az.rad # in radians (E) (Azimuth)
+    
+    print('\n')
+    print(f"{'Obj Property':<20} {'Degrees':<15}")
+    print(f"{'-'*35}")
+    print(f"{'Object RA':<20} {object_ra:<15.4f}")
+    print(f"{'Object Dec':<20} {object_dec:<15.4f}")
+    print()
+    print(f"{'Airplane Altitude':<20} {alt_az.alt.deg:<15.4f}")
+    print(f"{'Airplane Azimuth':<20} {alt_az.az.deg:<15.4f}")
+    print(f"{'-'*35}")
+
+    # Convert longitude, latitude of the observer to cartesian coordinates
+    # To convert longitude, latitude to cartesian coordinates, we use the Mercator projection as an approximation
+    # To compute the x, y coordinates manually, we use the following formulas:
+    # xc = R * math.cos(obs_lat) * math.cos(obs_lon) # in m
+    # yc = R * math.cos(obs_lat) * math.sin(obs_lon) # in m
+    # Here, we use the pyproj library to convert longitude, latitude to x, y coordinates
+
+    obs_lat = math.radians(observer_lat)
+    obs_lon = math.radians(observer_lon)
+   
+    transformer_mercator = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857")
+    xc, yc = transformer_mercator.transform(observer_lon, observer_lat)
+
+    # Convert radians to degrees
+    obs_lon_deg = math.degrees(obs_lon)
+    obs_lat_deg = math.degrees(obs_lat)
+
+    print('\n')
+    print(f"{'Observer Property':<20} {'Value':<19} {'Value2':<15}")
+    print(f"{'-'*58}")
+    print(f"{'Observer X':<20} {xc/1000.0:<15.4f} km")
+    print(f"{'Observer Y':<20} {yc/1000.0:<15.4f} km")
+    print(f"{'Observer Longitude':<20} {obs_lon:<15.4f} rad {obs_lon_deg:<10.4f} deg")
+    print(f"{'Observer Latitude':<20} {obs_lat:<15.4f} rad {obs_lat_deg:<10.4f} deg")
+    print(f"{'-'*58}")
+
+    # Hypothesis: flying at 10km altitude
+    alt_objet = 10000 # in m
+    R = 6371000 # Earth radius in m
+
+    # We make a triangle to convert altitude, azimuth to coordinates of a horizontal plane x-y 
+    # tangent to the sphere of the Earth at the observer's location
+    
+    Rprime = R + observer_alt
+    alpha = E + math.pi/2
+    beta = math.asin((Rprime * math.sin(A)) / (Rprime + alt_objet))
+    psi =  alpha + beta
+    d = psi * R
+    x = xc + d * math.cos(A)
+    y = yc + d * math.sin(A)
+
+    # Convert radians to degrees
+    alpha_deg = math.degrees(alpha)
+    beta_deg = math.degrees(beta)
+    psi_deg = math.degrees(psi)
+    E_deg = math.degrees(E)
+    A_deg = math.degrees(A)
+
+    # Print as a table with fixed width columns
+    print("\n")
+    print(f"{'Obj Property':<12} {'Radians':<12} {'Degrees':<15}")
+    print(f"{'-'*40}")
+    print(f"{'Alpha':<12} {alpha:<12.4f} {alpha_deg:<15.4f}")
+    print(f"{'Beta':<12} {beta:<12.4f} {beta_deg:<15.4f}")
+    print(f"{'Psi':<12} {psi:<12.4f} {psi_deg:<15.4f}")
+    print(f"{'Altitude':<12} {E:<12.4f} {E_deg:<15.4f}")
+    print(f"{'Azimuth':<12} {A:<12.4f} {A_deg:<15.4f}")
+    print()
+    print(f"{'Distance':<12} {d/1000.0:<12.4f} {'km':<15}")
+    print(f"{'X':<12} {x/1000.0:<12.4f} {'km':<15}")
+    print(f"{'Y':<12} {y/1000.0:<12.4f} {'km':<15}")
+    print(f"{'-'*40}\n")
+
+    # Convert x, y to longitude, latitude
+    # lon = math.atan2(y,x)
+    # lat = math.atan2(z,(math.sqrt(x*x+y*y)))
+    transformer_wgs64 = pyproj.Transformer.from_crs("EPSG:3857", "EPSG:4326")
+    lon, lat = transformer_wgs64.transform(x, y)
+
+    return lon, lat
+
 def altaz_to_polar(alt, az):
     """
     Submethod to convert altitude (radians), azimuth (radians) of an object to polar coordinates (r,theta)
@@ -322,16 +464,22 @@ def main():
     print("Observer Location:", observer_location)
     print("Observer Time:", observer_time)
 
+
+    wcs_header_path = "output/wcs_header_12mars.txt"
+
     # Get ref_pixel (x,y) in image, ref_celestial_coord (RA,Dec) of ref pixel and transformation matrix
-    ref_pixel,ref_celestial_coord,matrix = get_calibrated_camera_parameters("../output/wcs_header.txt")
+    ref_pixel,ref_celestial_coord,matrix = get_calibrated_camera_parameters(wcs_header_path)
     
-    print(get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"../output/wcs_header.txt"))
+    print(get_celestial_coordinates(ref_pixel[0],ref_pixel[1],wcs_header_path))
     
     # Compute Celestial coordinates of a given point (x,y) in the photo
-    object_coordinates = get_celestial_coordinates(ref_pixel[0],ref_pixel[1],"../output/wcs_header.txt")
+    object_coordinates = get_celestial_coordinates(ref_pixel[0],ref_pixel[1],wcs_header_path)
     
     # Convert celestial coordinates of the object to GPS coordinates (longitude, latitude)
-    object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
+    # object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
+    # object_coordinates = (743,543)
+    # object_coordinates = get_celestial_coordinates(743,543,wcs_header_path)
+    object_location = convert_to_gps_coordinates(observer_location, observer_time, object_coordinates)
     print(f"The GPS coordinates of the object are: \n{object_location}")
 
     return 0
