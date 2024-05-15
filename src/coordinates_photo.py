@@ -284,7 +284,7 @@ def convert_to_gps_coordinates(observer_location, observer_time, object_coordina
     celestial_coord = SkyCoord(ra=object_ra, dec=object_dec, unit="deg", frame='icrs')
 
     # Convert to Zenith and Azimuth observing_location
-    alt_az = celestial_coord.transform_to(AltAz(obstime=observer_time, location=observing_location))
+    alt_az = celestial_coord.transform_to(AltAz(obstime=gmt_time, location=observing_location))
 
     # Get Altitude and Azimuth of the object
     E = alt_az.alt.rad # in radians (A) (Altitude)
@@ -311,7 +311,7 @@ def convert_to_gps_coordinates(observer_location, observer_time, object_coordina
     obs_lon = math.radians(observer_lon)
    
     transformer_mercator = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:3857")
-    xc, yc = transformer_mercator.transform(observer_lon, observer_lat)
+    yc, xc = transformer_mercator.transform(observer_lon, observer_lat)
 
     # Convert radians to degrees
     obs_lon_deg = math.degrees(obs_lon)
@@ -367,7 +367,7 @@ def convert_to_gps_coordinates(observer_location, observer_time, object_coordina
     # lon = math.atan2(y,x)
     # lat = math.atan2(z,(math.sqrt(x*x+y*y)))
     transformer_wgs64 = pyproj.Transformer.from_crs("EPSG:3857", "EPSG:4326")
-    lon, lat = transformer_wgs64.transform(x, y)
+    lon, lat = transformer_wgs64.transform(y, x)
 
     return lon, lat
 
@@ -465,7 +465,7 @@ def main():
     print("Observer Time:", observer_time)
 
 
-    wcs_header_path = "output/wcs_header_12mars.txt"
+    wcs_header_path = "output/wcs_header_20avril.txt"
 
     # Get ref_pixel (x,y) in image, ref_celestial_coord (RA,Dec) of ref pixel and transformation matrix
     ref_pixel,ref_celestial_coord,matrix = get_calibrated_camera_parameters(wcs_header_path)
@@ -478,9 +478,32 @@ def main():
     # Convert celestial coordinates of the object to GPS coordinates (longitude, latitude)
     # object_location = convert_coordinates(observer_location, observer_time, object_coordinates)
     # object_coordinates = (743,543)
-    # object_coordinates = get_celestial_coordinates(743,543,wcs_header_path)
+    object_coordinates = get_celestial_coordinates(0,0,wcs_header_path)
     object_location = convert_to_gps_coordinates(observer_location, observer_time, object_coordinates)
     print(f"The GPS coordinates of the object are: \n{object_location}")
+
+    image_width = 1600
+    image_height = 1066
+    image_left_top = (0,0)
+    image_right_top = (image_width,0)
+    image_right_bottom = (image_width,image_height)
+    image_left_bottom = (0,image_height)
+
+    left_top = get_celestial_coordinates(image_left_top[0],image_left_top[1],wcs_header_path)
+    right_top = get_celestial_coordinates(image_right_top[0],image_right_top[1],wcs_header_path)
+    right_bottom = get_celestial_coordinates(image_right_bottom[0],image_right_bottom[1],wcs_header_path)
+    left_bottom = get_celestial_coordinates(image_left_bottom[0],image_left_bottom[1],wcs_header_path)
+
+    left_top_gps = convert_to_gps_coordinates(observer_location, observer_time, left_top)
+    right_top_gps = convert_to_gps_coordinates(observer_location, observer_time, right_top) 
+    right_bottom_gps = convert_to_gps_coordinates(observer_location, observer_time, right_bottom)
+    left_bottom_gps = convert_to_gps_coordinates(observer_location, observer_time, left_bottom)
+
+    print("\n")
+    print(f"Left Top GPS: {left_top_gps}")
+    print(f"Right Top GPS: {right_top_gps}")
+    print(f"Right Bottom GPS: {right_bottom_gps}")
+    print(f"Left Bottom GPS: {left_bottom_gps}")
 
     return 0
 
