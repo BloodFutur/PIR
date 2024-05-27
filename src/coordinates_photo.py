@@ -186,7 +186,7 @@ def calculate_lon_lat(observer_lat, observer_lon, elevation, azimuth,aircraft_al
     assume aircrafts fly object_alt = 10km
     """
     # Earth's radius in kilometers
-    Earth_radius = 6371  
+    Earth_radius = 6371.1363
     
     # Convert angles from degrees to radians
     observer_lat_rad = np.radians(observer_lat)
